@@ -21,6 +21,7 @@ use Symfony\CS\Fixer;
 use Symfony\CS\FixerInterface;
 use Symfony\CS\Config\Config;
 use Symfony\CS\ConfigInterface;
+use Symfony\CS\StdinFileInfo;
 
 /**
  * @author Fabien Potencier <fabien@symfony.com>
@@ -52,8 +53,9 @@ class FixCommand extends Command
         $this
             ->setName('fix')
             ->setDefinition(array(
-                new InputArgument('path', InputArgument::REQUIRED, 'The path'),
+                new InputArgument('path', InputArgument::OPTIONAL, 'The path', null),
                 new InputOption('config', '', InputOption::VALUE_REQUIRED, 'The configuration name', null),
+                new InputOption('config-file', '', InputOption::VALUE_OPTIONAL, 'The path to a .php_cs file ', null),
                 new InputOption('dry-run', '', InputOption::VALUE_NONE, 'Only shows which files would have been modified'),
                 new InputOption('level', '', InputOption::VALUE_REQUIRED, 'The level of fixes (can be psr0, psr1, psr2, or all)', null),
                 new InputOption('fixers', '', InputOption::VALUE_REQUIRED, 'A list of fixers to run'),
@@ -91,6 +93,11 @@ using <comment>-name</comment>:
 A combination of <comment>--dry-run</comment>, <comment>--verbose</comment> and <comment>--diff</comment> will
 display summary of proposed fixes, leaving your files unchanged.
 
+The command can also read from standard input, in which case it won't
+automatically fix anything:
+
+    <info>cat foo.php | php %command.full_name% -v --diff -</info>
+
 Choose from the list of available fixers:
 
 {$this->getFixersHelp()}
@@ -98,8 +105,8 @@ Choose from the list of available fixers:
 The <comment>--config</comment> option customizes the files to analyse, based
 on some well-known directory structures:
 
-    <comment># For the Symfony 2.1 branch</comment>
-    <info>php %command.full_name% /path/to/sf21 --config=sf21</info>
+    <comment># For the Symfony 2.3+ branch</comment>
+    <info>php %command.full_name% /path/to/sf23 --config=sf23</info>
 
 Choose from the list of available configurations:
 
@@ -118,7 +125,7 @@ and directories that need to be analyzed:
     <?php
 
     \$finder = Symfony\CS\Finder\DefaultFinder::create()
-        ->exclude('somefile')
+        ->exclude('somedir')
         ->in(__DIR__)
     ;
 
@@ -126,6 +133,25 @@ and directories that need to be analyzed:
         ->fixers(array('indentation', 'elseif'))
         ->finder(\$finder)
     ;
+
+You may also use a blacklist for the Fixers instead of the above shown whitelist approach.
+The following example shows how to use all Fixers but the `Psr0Fixer`.
+Note the additional <comment>-</comment> in front of the Fixer name.
+
+    <?php
+
+    \$finder = Symfony\CS\Finder\DefaultFinder::create()
+        ->exclude('somedir')
+        ->in(__DIR__)
+    ;
+
+    return Symfony\CS\Config\Config::create()
+        ->fixers(array('-Psr0Fixer'))
+        ->finder(\$finder)
+    ;
+
+With the <comment>--config-file</comment> option you can specify the path to the
+<comment>.php_cs</comment> file.
 EOF
             );
     }
@@ -136,12 +162,35 @@ EOF
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $path = $input->getArgument('path');
-        $filesystem = new Filesystem();
-        if (!$filesystem->isAbsolutePath($path)) {
-            $path = getcwd().DIRECTORY_SEPARATOR.$path;
+
+        $stdin = false;
+
+        if ('-' === $path) {
+            $stdin = true;
+
+            // Can't write to STDIN
+            $input->setOption('dry-run', true);
         }
 
-        $addSuppliedPathFromCli = true;
+        if (null !== $path) {
+            $filesystem = new Filesystem();
+            if (!$filesystem->isAbsolutePath($path)) {
+                $path = getcwd() . DIRECTORY_SEPARATOR . $path;
+            }
+        }
+
+        $configFile = $input->getOption('config-file');
+        if (null === $configFile) {
+            if (is_file($path) && $dirName = pathinfo($path, PATHINFO_DIRNAME)) {
+                $configDir = $dirName;
+            } elseif ($stdin || null === $path) {
+                $configDir = getcwd();
+                // path is directory
+            } else {
+                $configDir = $path;
+            }
+            $configFile = $configDir . DIRECTORY_SEPARATOR . '.php_cs';
+        }
 
         if ($input->getOption('config')) {
             $config = null;
@@ -155,19 +204,24 @@ EOF
             if (null === $config) {
                 throw new \InvalidArgumentException(sprintf('The configuration "%s" is not defined', $input->getOption('config')));
             }
-        } elseif (file_exists($file = $path.'/.php_cs')) {
-            $config = include $file;
-            $addSuppliedPathFromCli = false;
+        } elseif (file_exists($configFile)) {
+            $config = include $configFile;
+            // verify that the config has an instance of Config
+            if (!$config instanceof Config) {
+                throw new \UnexpectedValueException(sprintf('The config file "%s" does not return an instance of Symfony\CS\Config\Config', $configFile));
+            } else {
+                $output->writeln(sprintf('Loaded config from "%s"', $configFile));
+            }
         } else {
             $config = $this->defaultConfig;
         }
 
-        if ($addSuppliedPathFromCli) {
-            if (is_file($path)) {
-                $config->finder(new \ArrayIterator(array(new \SplFileInfo($path))));
-            } else {
-                $config->setDir($path);
-            }
+        if (is_file($path)) {
+            $config->finder(new \ArrayIterator(array(new \SplFileInfo($path))));
+        } elseif ($stdin) {
+            $config->finder(new \ArrayIterator(array(new StdinFileInfo())));
+        } else {
+            $config->setDir($path);
         }
 
         // register custom fixers from config

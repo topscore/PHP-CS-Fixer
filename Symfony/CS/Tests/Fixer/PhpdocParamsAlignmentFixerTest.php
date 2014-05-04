@@ -43,6 +43,84 @@ EOF;
         $this->assertEquals($expected, $fixer->fix($file, $input));
     }
 
+    public function testFixMultiLineDesc()
+    {
+        $fixer = new PhpdocParamsAlignmentFixer();
+        $file = new \SplFileInfo(__FILE__);
+
+        $expected = <<<'EOF'
+
+     * @param EngineInterface $templating
+     * @param string          $format
+     * @param integer         $code       An HTTP response status code
+     *                                    See constants
+     * @param Boolean         $debug
+     * @param Boolean         $debug      See constants
+     *                                    See constants
+     * @param mixed           &$reference A parameter passed by reference
+
+EOF;
+
+        $input = <<<'EOF'
+
+     * @param  EngineInterface $templating
+     * @param string      $format
+     * @param  integer  $code       An HTTP response status code
+     *                              See constants
+     * @param    Boolean      $debug
+     * @param    Boolean      $debug See constants
+     * See constants
+     * @param  mixed    &$reference     A parameter passed by reference
+
+EOF;
+
+        $this->assertEquals($expected, $fixer->fix($file, $input));
+    }
+
+    public function testFixMultiLineDescWithThrows()
+    {
+        $fixer = new PhpdocParamsAlignmentFixer();
+        $file = new \SplFileInfo(__FILE__);
+
+        $expected = <<<'EOF'
+
+     * @param EngineInterface $templating
+     * @param string          $format
+     * @param integer         $code       An HTTP response status code
+     *                                    See constants
+     * @param Boolean         $debug
+     * @param Boolean         $debug      See constants
+     *                                    See constants
+     * @param mixed           &$reference A parameter passed by reference
+     *
+     * @return Foo description foo
+     *
+     * @throws Foo description foo
+     *             description foo
+
+EOF;
+
+        $input = <<<'EOF'
+
+     * @param  EngineInterface $templating
+     * @param string      $format
+     * @param  integer  $code       An HTTP response status code
+     *                              See constants
+     * @param    Boolean      $debug
+     * @param    Boolean      $debug See constants
+     * See constants
+     * @param  mixed    &$reference     A parameter passed by reference
+     *
+     * @return Foo description foo
+     *
+     * @throws Foo             description foo
+     * description foo
+
+EOF;
+
+        $this->assertEquals($expected, $fixer->fix($file, $input));
+    }
+
     public function testFixWithReturnAndThrows()
     {
         $fixer = new PhpdocParamsAlignmentFixer();
@@ -113,6 +191,46 @@ EOF;
         $input = <<<'EOF'
 
      * @return   Foo             description foo
+
+EOF;
+
+        $this->assertEquals($expected, $fixer->fix($file, $input));
+    }
+
+    public function testReturnWithDollarThis()
+    {
+        $fixer = new PhpdocParamsAlignmentFixer();
+        $file = new \SplFileInfo(__FILE__);
+
+        $expected = <<<'EOF'
+     * @param  Foo   $foo
+     * @return $this
+
+EOF;
+
+        $input = <<<'EOF'
+     * @param Foo $foo
+     * @return $this
+
+EOF;
+
+        $this->assertEquals($expected, $fixer->fix($file, $input));
+    }
+
+    public function testCustomAnnotationsStayUntouched()
+    {
+        $fixer = new PhpdocParamsAlignmentFixer();
+        $file = new \SplFileInfo(__FILE__);
+
+        $expected = <<<'EOF'
+     * @return string
+     * @SuppressWarnings(PHPMD.UnusedLocalVariable)
+
+EOF;
+
+        $input = <<<'EOF'
+     * @return string
+     *  @SuppressWarnings(PHPMD.UnusedLocalVariable)
 
 EOF;
 
